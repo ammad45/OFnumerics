@@ -1,0 +1,5 @@
+hybridGaussLS/hybridGaussLSs.C
+hybridIterGaussLS/hybridIterGaussLSs.C
+hybridLsqGG/hybridLsqGGs.C
+
+LIB = $(FOAM_USER_LIBBIN)/libnumerics
