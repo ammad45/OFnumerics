@@ -1,5 +1,6 @@
 hybridGaussLS/hybridGaussLSs.C
 hybridIterGaussLS/hybridIterGaussLSs.C
 hybridLsqGG/hybridLsqGGs.C
+blendedGradScheme/blendedGradSchemes.C
 
 LIB = $(FOAM_USER_LIBBIN)/libnumerics

@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set +x
+
+wclean libso computeGradSchemeBlending
+wclean libso gradSchemes 

@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set +x
+
+wmake libso computeGradSchemeBlending
+wmake libso gradSchemes 
