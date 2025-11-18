@@ -22,5 +22,7 @@ FoamFile
             chevron        off;         // enable chevron detection
             flat           0.2 4.0;    // NCF decay
             lsq           8.0;        // eigenvalue ratio threshold
-	    smooth { weight 0.5; passes 1; }
+	    nonOrth		60;   //additional flag so that Gauss is not applied to a bad cell
+	    skew		2;    //Additional flag
+            smooth { weight 0.5; passes 1; }
 }

@@ -39,6 +39,7 @@ Usage
 
 #include "fvCFD.H"
 #include "mathematicalConstants.H"
+#include "cellQuality.H"
 
 // Helper functions (reused from hybridLsqGG logic)
 
@@ -161,6 +162,8 @@ scalar maxSkewAngleDeg(const fvMesh& mesh, const label cellI)
     }
     return amax;
 }
+
+// maxNonOrthAngleDeg removed; use cellQuality.nonOrthogonality() instead
 
 scalar betaFlatCurvature(const fvMesh& mesh, const label cellI, const scalar flatNCF, const scalar flatDecay)
 {
@@ -300,11 +303,19 @@ int main(int argc, char *argv[])
         smoothPasses = max(smoothPasses, 1);
     }
 
+    // Optional gating: force background (beta=0) on poor-quality cells
+    bool useNonOrthGate = blendingDict.found("nonOrth");
+    scalar nonOrthTolDeg = useNonOrthGate ? blendingDict.get<scalar>("nonOrth") : 0.0; // degrees
+    bool useSkewGate = blendingDict.found("skew");
+    scalar skewTol = useSkewGate ? blendingDict.get<scalar>("skew") : 0.0; // meshQuality skewness (unitless)
+
     Info<< "Blending criteria:" << nl
         << "  aspect: " << (useAspect ? "on (threshold: " + name(aspectThresh) + ")" : "off") << nl
         << "  chevron: " << (useChevron ? "on" : "off") << nl
         << "  flat: " << (useFlat ? "on (NCF: " + name(flatNCF) + ", decay: " + name(flatDecay) + ")" : "off") << nl
         << "  lsq: " << (useLsqRatio ? "on (ratio: " + name(lsqEigenRatioMin) + ")" : "off") << nl
+        << "  nonOrth gate: " << (useNonOrthGate ? "on (deg: " + name(nonOrthTolDeg) + ")" : "off") << nl
+        << "  skew gate: " << (useSkewGate ? "on (skewness: " + name(skewTol) + ")" : "off") << nl
         << endl;
 
     // Create blending field (0..1): 0 = background scheme, 1 = blended scheme
@@ -403,6 +414,30 @@ int main(int argc, char *argv[])
                 }
             }
         }
+    }
+
+    // Enforce gating after all operations (strong override to background)
+    if (useNonOrthGate || useSkewGate)
+    {
+        Info<< "  Applying mesh-quality gates (forcing background where poor)..." << endl;
+        // Compute per-cell mesh quality fields once
+        cellQuality meshQuality(mesh);
+        scalarField nonOrth, skew;
+        if (useNonOrthGate) nonOrth = meshQuality.nonOrthogonality(); // degrees per cell
+        if (useSkewGate)    skew    = meshQuality.skewness();         // unitless per cell
+        label forced = 0;
+        forAll(beta, cellI)
+        {
+            bool poor = false;
+            if (useNonOrthGate && nonOrth[cellI] > nonOrthTolDeg) poor = true;
+            if (!poor && useSkewGate && skew[cellI] > skewTol)    poor = true;
+            if (poor)
+            {
+                if (beta[cellI] != 0.0) { ++forced; }
+                beta[cellI] = 0.0;
+            }
+        }
+        Info<< "    Forced background in " << forced << " cells." << endl;
     }
 
     // Statistics
