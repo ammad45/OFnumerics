@@ -163,8 +163,6 @@ scalar maxSkewAngleDeg(const fvMesh& mesh, const label cellI)
     return amax;
 }
 
-// maxNonOrthAngleDeg removed; use cellQuality.nonOrthogonality() instead
-
 scalar betaFlatCurvature(const fvMesh& mesh, const label cellI, const scalar flatNCF, const scalar flatDecay)
 {
     const scalar ang = maxSkewAngleDeg(mesh, cellI);
@@ -280,6 +278,13 @@ int main(int argc, char *argv[])
     bool doSmooth = blendingDict.found("smooth");
     scalar smoothW = 1.0;     // 1.0 -> pure neighbour average, 0.0 -> no change
     label smoothPasses = 1;   // number of smoothing passes
+    // Optional: pin beta==1 cells during smoothing (only affect neighbours)
+    bool preserveOne = false;
+    if (blendingDict.found("preserveOne"))
+    {
+        const word v = blendingDict.get<word>("preserveOne");
+        preserveOne = (v == "yes" || v == "on" || v == "true" || v == "1");
+    }
     if (doSmooth)
     {
         const entry* ePtr = blendingDict.findEntry("smooth", keyType::LITERAL);
@@ -387,30 +392,74 @@ int main(int argc, char *argv[])
     if (doSmooth)
     {
         Info<< "  Smoothing blending field (weight=" << smoothW
-            << ", passes=" << smoothPasses << ")..." << endl;
+            << ", passes=" << smoothPasses
+            << ", preserveOne=" << (preserveOne ? "yes" : "no") << ")..." << endl;
 
         const labelUList& owner = mesh.owner();
         const labelUList& neighbour = mesh.neighbour();
 
         for (label pass = 0; pass < smoothPasses; ++pass)
         {
-            scalarField sum(mesh.nCells(), 0.0);
-            scalarField cnt(mesh.nCells(), 0.0);
+            const scalarField betaPrev(beta);
 
-            forAll(owner, facei)
+            if (preserveOne)
             {
-                const label o = owner[facei];
-                const label n = neighbour[facei];
-                sum[o] += beta[n]; cnt[o] += 1.0;
-                sum[n] += beta[o]; cnt[n] += 1.0;
-            }
+                // Pin beta==1 and only raise neighbours
+                boolList pinned(mesh.nCells(), false);
+                forAll(betaPrev, i) { pinned[i] = (betaPrev[i] >= 1.0 - SMALL); }
 
-            forAll(beta, cellI)
-            {
-                if (cnt[cellI] > VSMALL)
+                scalarField cnt(mesh.nCells(), 0.0);
+                scalarField pinCnt(mesh.nCells(), 0.0);
+
+                forAll(owner, facei)
                 {
-                    const scalar avg = sum[cellI]/cnt[cellI];
-                    beta[cellI] = (1.0 - smoothW)*beta[cellI] + smoothW*avg;
+                    const label o = owner[facei];
+                    const label n = neighbour[facei];
+                    cnt[o] += 1.0;
+                    cnt[n] += 1.0;
+                    if (pinned[n]) pinCnt[o] += 1.0;
+                    if (pinned[o]) pinCnt[n] += 1.0;
+                }
+
+                forAll(beta, cellI)
+                {
+                    if (pinned[cellI]) { beta[cellI] = 1.0; continue; }
+                    if (cnt[cellI] > VSMALL && pinCnt[cellI] > VSMALL)
+                    {
+                        const scalar influence = pinCnt[cellI]/cnt[cellI];
+                        beta[cellI] = betaPrev[cellI] + smoothW*influence*(1.0 - betaPrev[cellI]);
+                    }
+                    else
+                    {
+                        beta[cellI] = betaPrev[cellI];
+                    }
+                }
+            }
+            else
+            {
+                // Original neighbour averaging smoothing (can lower ones)
+                scalarField sum(mesh.nCells(), 0.0);
+                scalarField cnt(mesh.nCells(), 0.0);
+
+                forAll(owner, facei)
+                {
+                    const label o = owner[facei];
+                    const label n = neighbour[facei];
+                    sum[o] += betaPrev[n]; cnt[o] += 1.0;
+                    sum[n] += betaPrev[o]; cnt[n] += 1.0;
+                }
+
+                forAll(beta, cellI)
+                {
+                    if (cnt[cellI] > VSMALL)
+                    {
+                        const scalar avg = sum[cellI]/cnt[cellI];
+                        beta[cellI] = (1.0 - smoothW)*betaPrev[cellI] + smoothW*avg;
+                    }
+                    else
+                    {
+                        beta[cellI] = betaPrev[cellI];
+                    }
                 }
             }
         }
